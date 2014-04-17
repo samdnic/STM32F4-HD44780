@@ -8,6 +8,8 @@ Copyright 2013 Al Brown
 
 al [at] eartoearoak.com
 
+Minor modifications applied to allow RS,RW and E pins on different GPIO to data and sample code in main() changed to enable level shift in my implementation -  Sam Nicholson (sam [at] samn.co.uk)
+
 ##Usage##
 
 Complete documentation can be found here.
@@ -16,11 +18,11 @@ A brief example is included in the source code.
 
 Initialise the driver using:
 
-`hd44780_init(gpio, rs, rw, e, db4, db5, db6, db7, lines, font)`
+`hd44780_init(gpio_data, gpio_cfg, rs, rw, e, db4, db5, db6, db7, lines, font)`
 
 where:
 
-`gpio` - GPIO Port (GPIOA to GPIOE)
+`gpio_data, gpio_cfg` - GPIO Ports for config and data pins (GPIOA to GPIOE)
 
 `rs, rw, e, db4, db5, db6, db7` - Pins (`GPIO_Pin_0` to `GPIO_Pin_15`)
 

@@ -61,7 +61,8 @@ typedef struct {
 } hd44780_task_t;
 
 typedef struct {
-	GPIO_TypeDef* gpio;
+	GPIO_TypeDef* gpio_data;
+	GPIO_TypeDef* gpio_config;
 	u32 rs;
 	u32 rw;
 	u32 e;
@@ -87,33 +88,36 @@ static void delay(u8 delay) {
 static void set_output(const bool output) {
 
 	GPIO_InitTypeDef GPIO_InitStruct;
-	u32 pins;
-	u8 dir;
+	GPIO_InitStruct.GPIO_Pin = Lcd_Conf.db4 | Lcd_Conf.db5 | Lcd_Conf.db6 |
+	                            Lcd_Conf.db7;
 
-	pins = Lcd_Conf.db4 | Lcd_Conf.db5 | Lcd_Conf.db6 | Lcd_Conf.db7;
-	dir = GPIO_Mode_IN;
-
-	if (output) {
-		pins = pins | Lcd_Conf.rs | Lcd_Conf.rw | Lcd_Conf.e;
-		dir = GPIO_Mode_OUT;
-	}
-
-	GPIO_InitStruct.GPIO_Pin = pins;
-	GPIO_InitStruct.GPIO_Mode = dir;
 	GPIO_InitStruct.GPIO_OType = GPIO_OType_PP;
 	GPIO_InitStruct.GPIO_PuPd = GPIO_PuPd_NOPULL;
 	GPIO_InitStruct.GPIO_Speed = GPIO_Speed_25MHz;
 
-	GPIO_Init(Lcd_Conf.gpio, &GPIO_InitStruct);
+	if (output) {
+	    GPIO_InitStruct.GPIO_Mode = GPIO_Mode_OUT;
+
+	    GPIO_Init(Lcd_Conf.gpio_data, &GPIO_InitStruct);
+
+	    GPIO_InitStruct.GPIO_Pin = Lcd_Conf.rs | Lcd_Conf.rw | Lcd_Conf.e;
+
+	    GPIO_Init(Lcd_Conf.gpio_config, &GPIO_InitStruct);
+
+	} else {
+	    GPIO_InitStruct.GPIO_Mode = GPIO_Mode_IN;
+
+	    GPIO_Init(Lcd_Conf.gpio_data, &GPIO_InitStruct);
+	}
 }
 
 static void enable(const bool pulse) {
 
 	if (pulse) {
-		GPIO_ToggleBits(Lcd_Conf.gpio, Lcd_Conf.e);
+		GPIO_ToggleBits(Lcd_Conf.gpio_config, Lcd_Conf.e);
 		delay(150);
 	}
-	GPIO_ToggleBits(Lcd_Conf.gpio, Lcd_Conf.e);
+	GPIO_ToggleBits(Lcd_Conf.gpio_config, Lcd_Conf.e);
 	delay(150);
 }
 
@@ -121,12 +125,12 @@ static void write(const u8 data, const bool reg) {
 
 	set_output(true);
 
-	GPIO_ResetBits(Lcd_Conf.gpio, Lcd_Conf.rw);
-	GPIO_WriteBit(Lcd_Conf.gpio, Lcd_Conf.rs, !reg);
-	GPIO_WriteBit(Lcd_Conf.gpio, Lcd_Conf.db7, (data & 0x8) >> 3);
-	GPIO_WriteBit(Lcd_Conf.gpio, Lcd_Conf.db6, (data & 0x4) >> 2);
-	GPIO_WriteBit(Lcd_Conf.gpio, Lcd_Conf.db5, (data & 0x2) >> 1);
-	GPIO_WriteBit(Lcd_Conf.gpio, Lcd_Conf.db4, (data & 0x1));
+	GPIO_ResetBits(Lcd_Conf.gpio_config, Lcd_Conf.rw);
+	GPIO_WriteBit(Lcd_Conf.gpio_config, Lcd_Conf.rs, !reg);
+	GPIO_WriteBit(Lcd_Conf.gpio_data, Lcd_Conf.db7, (data & 0x8) >> 3);
+	GPIO_WriteBit(Lcd_Conf.gpio_data, Lcd_Conf.db6, (data & 0x4) >> 2);
+	GPIO_WriteBit(Lcd_Conf.gpio_data, Lcd_Conf.db5, (data & 0x2) >> 1);
+	GPIO_WriteBit(Lcd_Conf.gpio_data, Lcd_Conf.db4, (data & 0x1));
 	enable(true);
 }
 
@@ -135,10 +139,11 @@ static bool read_busy(void) {
 	u8 data;
 
 	set_output(false);
-	GPIO_ResetBits(Lcd_Conf.gpio, Lcd_Conf.rs | Lcd_Conf.db7);
-	GPIO_SetBits(Lcd_Conf.gpio, Lcd_Conf.rw);
+	GPIO_ResetBits(Lcd_Conf.gpio_config, Lcd_Conf.rs);
+	GPIO_ResetBits(Lcd_Conf.gpio_data, Lcd_Conf.db7);
+	GPIO_SetBits(Lcd_Conf.gpio_config, Lcd_Conf.rw);
 	enable(false);
-	data = GPIO_ReadInputDataBit(Lcd_Conf.gpio, Lcd_Conf.db7);
+	data = GPIO_ReadInputDataBit(Lcd_Conf.gpio_data, Lcd_Conf.db7);
 	enable(false);
 	enable(true);
 
@@ -342,6 +347,26 @@ void hd44780_printf(const char *fmt, ...) {
 	}
 }
 
+static u32 periph_get(GPIO_TypeDef* gpio)
+{
+    u32 periph;
+
+    if (gpio == GPIOA )
+        periph = RCC_AHB1Periph_GPIOA;
+    else if (gpio == GPIOB )
+        periph = RCC_AHB1Periph_GPIOB;
+    else if (gpio == GPIOC )
+        periph = RCC_AHB1Periph_GPIOC;
+    else if (gpio == GPIOD )
+        periph = RCC_AHB1Periph_GPIOD;
+    else if (gpio == GPIOE )
+        periph = RCC_AHB1Periph_GPIOE;
+    else
+        return 0;
+
+    return periph;
+}
+
 /**
  * Initialise the LCD
  *
@@ -356,11 +381,11 @@ void hd44780_printf(const char *fmt, ...) {
  * @param lines	Lines
  * @param font	Font
  */
-void hd44780_init(GPIO_TypeDef* gpio, const u16 rs, const u16 rw, const u16 e,
-		const u16 db4, const u16 db5, const u16 db6, const u16 db7,
-		const hd44780_lines_t lines, const hd44780_font_t font) {
+void hd44780_init(GPIO_TypeDef* gpio_data, GPIO_TypeDef* gpio_config,
+        const u16 rs, const u16 rw, const u16 e, const u16 db4, const u16 db5,
+        const u16 db6, const u16 db7, const hd44780_lines_t lines,
+        const hd44780_font_t font) {
 
-	u32 periph;
 	NVIC_InitTypeDef NVIC_InitStructure;
 	TIM_TimeBaseInitTypeDef TIM_InitStructure;
 
@@ -373,7 +398,8 @@ void hd44780_init(GPIO_TypeDef* gpio, const u16 rs, const u16 rw, const u16 e,
 	assert_param(IS_GPIO_PIN(db6));
 	assert_param(IS_GPIO_PIN(db7));
 
-	Lcd_Conf.gpio = gpio;
+	Lcd_Conf.gpio_data = gpio_data;
+	Lcd_Conf.gpio_config = gpio_config;
 	Lcd_Conf.rs = rs;
 	Lcd_Conf.rw = rw;
 	Lcd_Conf.e = e;
@@ -384,20 +410,8 @@ void hd44780_init(GPIO_TypeDef* gpio, const u16 rs, const u16 rw, const u16 e,
 	Lcd_Conf.lines = lines;
 	Lcd_Conf.font = font;
 
-	if (gpio == GPIOA )
-		periph = RCC_AHB1Periph_GPIOA;
-	else if (gpio == GPIOB )
-		periph = RCC_AHB1Periph_GPIOB;
-	else if (gpio == GPIOC )
-		periph = RCC_AHB1Periph_GPIOC;
-	else if (gpio == GPIOD )
-		periph = RCC_AHB1Periph_GPIOD;
-	else if (gpio == GPIOE )
-		periph = RCC_AHB1Periph_GPIOE;
-	else
-		return;
-
-	RCC_AHB1PeriphClockCmd(periph, ENABLE);
+	RCC_AHB1PeriphClockCmd(periph_get(gpio_data), ENABLE);
+	RCC_AHB1PeriphClockCmd(periph_get(gpio_config), ENABLE);
 	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM7, ENABLE);
 
 	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_1 );
